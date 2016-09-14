@@ -1,5 +1,6 @@
 package elastic.demo
 
+import constants.Weight
 import elasticClasses.Country
 import elasticClasses.Establishment
 import grails.converters.JSON
@@ -66,37 +67,56 @@ class UtilController {
         List<Establishment> addressEstablishments = []
 
         SearchResponse locationSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-                .setQuery(QueryBuilders.geoDistanceQuery("location").point(25.274900, 55.327500).distance(1, DistanceUnit.KILOMETERS)).setSize(3).execute().actionGet()
-        locationSearch.hits.each {
-            println "location:${it.id}"
+                .setQuery(QueryBuilders.geoDistanceQuery("location").point(28.089380, -16.734130).distance(1, DistanceUnit.KILOMETERS)).setSize(3).execute().actionGet()
+        locationSearch.hits.eachWithIndex { val, i ->
+            println "location:${val.id}"
             Establishment establishment = new Establishment()
-            it.source.id = it.id
-            establishment = establishment.convertMapToObject(it.source) as Establishment
+            val.source.id = val.id
+            establishment = establishment.convertMapToObject(val.source) as Establishment
+            establishment.score = Weight.locationWeights?.get(i)
+            println ">>>>>>>>>>>>>${establishment.score}"
             locationEstablishments.add(establishment)
         }
 
         SearchResponse titleSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-                .setQuery(QueryBuilders.matchQuery("title", "labranda beach")).setSize(3).execute().actionGet()
-        titleSearch.hits.each {
-            println "title:${it.id}>>>>>${it.score}"
+                .setQuery(QueryBuilders.matchQuery("title", "Labranda")).setSize(3).execute().actionGet()
+        titleSearch.hits.eachWithIndex { val, i ->
+            println "title:${val.id}>>>>>${val.score}"
             Establishment establishment = new Establishment()
-            it.source.id = it.id
-            establishment = establishment.convertMapToObject(it.source) as Establishment
+            val.source.id = val.id
+            establishment = establishment.convertMapToObject(val.source) as Establishment
+            establishment.score = Weight.titleWeights?.get(i)
             titleEstablishments.add(establishment)
         }
 
         SearchResponse addressSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
                 .setQuery(QueryBuilders.boolQuery()
-                .should(QueryBuilders.matchQuery("address", "av. de las playas, 23, puerto del carmen"))
-                .should(QueryBuilders.matchQuery("countryName", "Spain"))
-                .should(QueryBuilders.matchQuery("locationName", "Puerto del Carmen")))
+                .must(QueryBuilders.matchQuery("address", "Av. Brusel, 8, Costa Adeje"))
+                .must(QueryBuilders.matchQuery("countryName", "Spain"))
+                .must(QueryBuilders.matchQuery("locationName", "Costa Adeje")))
                 .setSize(3).execute().actionGet()
-        addressSearch.hits.each {
-            println "address:${it.id}"
+        addressSearch.hits.eachWithIndex { val, i ->
+            println "address:${val.id}?????????????????${val.score}"
             Establishment establishment = new Establishment()
-            it.source.id = it.id
-            establishment = establishment.convertMapToObject(it.source) as Establishment
+            val.source.id = val.id
+            establishment = establishment.convertMapToObject(val.source) as Establishment
+            establishment.score = Weight.addressWeights?.get(i)
             addressEstablishments.add(establishment)
+        }
+
+        List<Establishment> commonList = locationEstablishments.findAll {
+            it.id in titleEstablishments*.id
+        }.findAll {
+            it.id in addressEstablishments*.id
+        }
+        commonList.each { establishment ->
+            establishment.finalScore = locationEstablishments.find {
+                it.id == establishment.id
+            }?.score + titleEstablishments.find { it.id == establishment.id }?.score + addressEstablishments.find {
+                it.id == establishment.id
+            }?.score
+            establishment.percentMatch = (establishment.finalScore * 100) / (Weight.locationWeights?.first() + Weight.addressWeights?.first() + Weight.titleWeights?.first())
+            println ">>>>>>>>>>>>>>>>>>>>>>>>>>${establishment.percentMatch}"
         }
 
         render([success: true] as JSON)

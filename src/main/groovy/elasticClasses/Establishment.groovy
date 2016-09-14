@@ -8,6 +8,9 @@ class Establishment extends BaseElastic {
     String locationName
     String countryName
     String geoCodeAccuracy
+    Integer score = 0
+    Integer finalScore
+    Integer percentMatch
     Location location
 
     static List<Establishment> establishments() {
@@ -20,4 +23,20 @@ class Establishment extends BaseElastic {
         ]
     }
 
+    boolean equals(o) {
+        if (this.is(o)) return true
+        if (getClass() != o.class) return false
+
+        Establishment that = (Establishment) o
+
+        if (id != that.id) return false
+
+        return true
+    }
+
+    int hashCode() {
+        int result
+        result = (id != null ? id.hashCode() : 0)
+        return result
+    }
 }
