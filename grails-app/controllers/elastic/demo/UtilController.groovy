@@ -1,5 +1,7 @@
 package elastic.demo
 
+import elasticClasses.Country
+import elasticClasses.Establishment
 import grails.converters.JSON
 import org.elasticsearch.action.admin.indices.mapping.put.PutMappingResponse
 import org.elasticsearch.action.index.IndexResponse
@@ -41,12 +43,71 @@ class UtilController {
         render([success: true] as JSON)
     }
 
+    def createEstablishments() {
+        Establishment.establishments().each {
+            String json = it.convertObjectToString()
+            TransportClient client = TransportClient.builder().build()
+                    .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName("localhost"), 9300))
+            Boolean indexExists = client.admin().indices().prepareExists("hotel").execute().actionGet().isExists()
+            if (!indexExists) {
+                client.admin().indices().prepareCreate("hotel").get()
+                client.admin().indices().preparePutMapping("hotel").setType("externalHotel").setSource([externalHotel: [properties: [location: [type: "geo_point"]]]]).execute().actionGet()
+            }
+            IndexResponse response = client.prepareIndex("hotel", "externalHotel").setSource(json).get()
+        }
+        render([success: true] as JSON)
+    }
+
+    def searchEstablishment() {
+        TransportClient client = TransportClient.builder().build()
+                .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName("localhost"), 9300))
+        List<Establishment> locationEstablishments = []
+        List<Establishment> titleEstablishments = []
+        List<Establishment> addressEstablishments = []
+
+        SearchResponse locationSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                .setQuery(QueryBuilders.geoDistanceQuery("location").point(25.274900, 55.327500).distance(1, DistanceUnit.KILOMETERS)).setSize(3).execute().actionGet()
+        locationSearch.hits.each {
+            println "location:${it.id}"
+            Establishment establishment = new Establishment()
+            it.source.id = it.id
+            establishment = establishment.convertMapToObject(it.source) as Establishment
+            locationEstablishments.add(establishment)
+        }
+
+        SearchResponse titleSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                .setQuery(QueryBuilders.matchQuery("title", "labranda beach")).setSize(3).execute().actionGet()
+        titleSearch.hits.each {
+            println "title:${it.id}>>>>>${it.score}"
+            Establishment establishment = new Establishment()
+            it.source.id = it.id
+            establishment = establishment.convertMapToObject(it.source) as Establishment
+            titleEstablishments.add(establishment)
+        }
+
+        SearchResponse addressSearch = client.prepareSearch("hotel").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                .setQuery(QueryBuilders.boolQuery()
+                .should(QueryBuilders.matchQuery("address", "av. de las playas, 23, puerto del carmen"))
+                .should(QueryBuilders.matchQuery("countryName", "Spain"))
+                .should(QueryBuilders.matchQuery("locationName", "Puerto del Carmen")))
+                .setSize(3).execute().actionGet()
+        addressSearch.hits.each {
+            println "address:${it.id}"
+            Establishment establishment = new Establishment()
+            it.source.id = it.id
+            establishment = establishment.convertMapToObject(it.source) as Establishment
+            addressEstablishments.add(establishment)
+        }
+
+        render([success: true] as JSON)
+    }
+
     def searchData() {
         TransportClient client = TransportClient.builder().build()
                 .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName("localhost"), 9300))
         SearchResponse searchResponse = client.prepareSearch("country")
                 .setTypes("externalCountry").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-                .setQuery(QueryBuilders.fuzzyQuery("name", "Sheraton")).addIndexBoost("0", 20).addIndexBoost("1", 10).setSize(3).execute().actionGet()
+                .setQuery(QueryBuilders.fuzzyQuery("name", "Sheraton")).setSize(3).execute().actionGet()
         searchResponse.hits.each {
             println("*******${it.properties}*******")
         }
@@ -57,6 +118,9 @@ class UtilController {
         searchResponse1.hits.each {
             println "++++++++++++++++++++++++++++${it.properties}"
         }
+        Country country = new Country().convertMapToObject(searchResponse1.hits?.first()?.source) as Country
+        println ">>>>>>>>>>>>>>>>>>>>>>>>>>>${country.properties}"
+        println ">>>>>>>>>>>>>>>>>>>>>>>>>>>${country.location.properties}"
         render([success: true] as JSON)
     }
 }

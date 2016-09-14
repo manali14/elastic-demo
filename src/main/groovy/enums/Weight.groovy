@@ -1,3 +1,5 @@
+package enums
+
 enum Weight {
     TITLE(50, 40, 30),
     LOCATION(80, 70, 60),
